@@ -1,0 +1,319 @@
+/*------------------------------------------RFID LOCK-------------------------------------
+ */
+ #include <EEPROM.h>     // We are going to read and write PICC's UIDs from/to EEPROM
+#include <SPI.h>        // RC522 Module uses SPI protocol
+#include <MFRC522.h>  // Library for Mifare RC522 Devices
+
+/*
+  Instead of a Relay you may want to use a servo. Servos can lock and unlock door locks too
+  Relay will be used by default
+*/
+
+#include <Servo.h>
+
+/*
+  For visualizing whats going on hardware we need some leds and to control door lock a relay and a wipe button
+  (or some other hardware) Used common anode led,digitalWriting HIGH turns OFF led Mind that if you are going
+  to use common cathode led or just seperate leds, simply comment out #define COMMON_ANODE,
+*/
+
+#define COMMON_ANODE
+
+#ifdef COMMON_ANODE
+#define LED_ON LOW
+#define LED_OFF HIGH
+#else
+#define LED_ON HIGH
+#define LED_OFF LOW
+#endif
+
+//--------------------Set Led Pins-----------------------
+#define redLed 7    
+#define greenLed 6
+#define blueLed 5
+//-----------------------------------------------------------
+
+#define relay 4     // Set Relay Pin
+#define wipeB 3     // Button pin for WipeMode
+
+
+//----------------RFID-------------------------------------------------------------
+bool programMode = false;  // initialize programming mode to false
+
+uint8_t successRead;    // Variable integer to keep if we have Successful Read from Reader
+
+byte storedCard[4];   // Stores an ID read from EEPROM
+byte readCard[4];   // Stores scanned ID read from RFID Module
+byte masterCard[4];   // Stores master card's ID read from EEPROM
+//------------------------RFID-----------------------------------------------------
+
+//--------------------Create MFRC522 instance-------------------
+#define SS_PIN 53
+#define RST_PIN 5
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+//--------------------------------------------------------------
+
+/*------------------------RFID -------------------------------*/
+ 
+
+#include <EnableInterrupt.h>
+#define SERIAL_PORT_SPEED 9600
+#define RC_NUM_CHANNELS 8
+#include <LiquidCrystal.h>
+
+int pinRF = 27;
+int pinRB = 28;
+int pinLF = 29;
+int pinLB = 30;
+
+/*---------------------------------- For LCD----------------------------------*/
+ const int rs = 14, en = 21, d4 = 22, d5 = 23, d6 = 24, d7 = 25;
+ LiquidCrystal lcd(rs,en,d4,d5,d6,d7);
+int pinA = 27;  // Right Forward
+int pinB = 28;  // Right Reverse
+int pinC = 29;  // Left Forward
+int pinD = 30;  // Left Reverse
+
+int enA = 6;
+int enB = 4;
+int BLight = 3;
+//--------------------------------------------------------------------------------
+
+
+/*----------------------------------------------RC stuff--------------------------------------------------*/
+//
+//
+// Adding list of macros for the number channels for accessing the specific channels
+//
+// in arrays
+#define RC_CH1  0
+#define RC_CH2  1
+#define RC_CH3  2
+#define RC_CH4  3
+//
+// Defines the pins that signals are connected to
+#define RC_CH1_INPUT  A8
+#define RC_CH2_INPUT  A9
+#define RC_CH3_INPUT  A10
+#define RC_CH4_INPUT  A11
+//
+uint16_t rc_values[RC_NUM_CHANNELS];
+uint32_t  rc_start[RC_NUM_CHANNELS];
+volatile uint16_t rc_shared[RC_NUM_CHANNELS];   // holds values for each channel until they
+//                                               // are copied to rc_values
+//
+void rc_read_values(){
+  noInterrupts();
+  memcpy(rc_values, (const void*)rc_shared, sizeof(rc_shared));
+  interrupts();
+}
+//
+void calc_input(uint8_t channel, uint8_t input_pin) {
+  if (digitalRead(input_pin) == HIGH) {
+    rc_start[channel] = micros();
+  } else {
+    uint16_t rc_compare = (uint16_t)(micros() - rc_start[channel]);
+    rc_shared[channel] = rc_compare;
+  }
+}
+//
+void calc_ch1(){ calc_input(RC_CH1, RC_CH1_INPUT); }
+void calc_ch2(){ calc_input(RC_CH2, RC_CH2_INPUT); }
+void calc_ch3(){ calc_input(RC_CH3, RC_CH3_INPUT); }
+void calc_ch4(){ calc_input(RC_CH4, RC_CH4_INPUT); }
+//
+void setup() {
+//
+pinMode(pinRF, OUTPUT);//Right side forward
+pinMode(pinRB, OUTPUT);//Right side backard
+pinMode(enA, OUTPUT);
+//
+pinMode(pinLF, OUTPUT);//Left side forward
+pinMode(pinLB, OUTPUT);//Left side backward
+pinMode(enB, OUTPUT);
+  Serial.begin(SERIAL_PORT_SPEED);
+//
+  pinMode(RC_CH1_INPUT, INPUT);
+  pinMode(RC_CH2_INPUT, INPUT);
+  pinMode(RC_CH3_INPUT, INPUT);
+  pinMode(RC_CH4_INPUT, INPUT);
+//
+  enableInterrupt(RC_CH1_INPUT, calc_ch1, CHANGE);
+  enableInterrupt(RC_CH2_INPUT, calc_ch2, CHANGE);
+  enableInterrupt(RC_CH3_INPUT, calc_ch3, CHANGE);
+  enableInterrupt(RC_CH4_INPUT, calc_ch4, CHANGE);
+//
+/*--------------------------------------------------------------------------------*/
+
+
+  /*----------------------------RFID LOCK---------------------------*/
+   //Arduino Pin Configuration
+  pinMode(redLed, OUTPUT);
+  pinMode(greenLed, OUTPUT);
+  pinMode(blueLed, OUTPUT);
+  pinMode(wipeB, INPUT_PULLUP);   // Enable pin's pull up resistor
+  pinMode(relay, OUTPUT);
+  //Be careful how relay circuit behave on while resetting or power-cycling your Arduino
+  digitalWrite(relay, HIGH);    // Make sure door is locked
+  digitalWrite(redLed, LED_OFF);  // Make sure led is off
+  digitalWrite(greenLed, LED_OFF);  // Make sure led is off
+  digitalWrite(blueLed, LED_OFF); // Make sure led is off
+
+  //Protocol Configuration
+  Serial.begin(9600);  // Initialize serial communications with PC
+  SPI.begin();           // MFRC522 Hardware uses SPI protocol
+  mfrc522.PCD_Init();    // Initialize MFRC522 Hardware
+}
+//-------------------------------------------------------------------------------------------------
+
+ 
+void loop() {
+//-------------Unlock Rc controls/ Void loop---------------------------------------------------------
+ 
+  digitalWrite(BLight, HIGH);
+      delay(100);
+   digitalWrite(BLight, LOW);
+   delay(100);
+  }
+successRead = getID();
+     while (successRead == 0) {   //the program will not go further while you are not getting a successful read
+    successRead = getID();
+    Serial.println("--LOCKED----YOU_CAN'T_DRIVE");
+    lcd.print("----LOCKED----");
+    lcd.setCursor(0,1);
+    lcd.print("-YOU-CAN'T-DRIVE-");
+   
+     }
+     delay(1000);
+     successRead = 0;
+     //Drive/////////////////////////////////////////////////////////////////////////
+     while (successRead == 0) {   //the program will not go further while you are not getting a successful read
+    successRead = getID();
+ //--------------------------------------------------------------------------------------------------------------------------
+
+   //Driving code//////////////////////////////////////////
+   rc_read_values();
+
+  Serial.print("CH1:"); Serial.print(rc_values[RC_CH1]); Serial.print("\t");
+  Serial.print("CH2:"); Serial.print(rc_values[RC_CH2]); Serial.print("\t");
+  Serial.print("CH3:"); Serial.print(rc_values[RC_CH3]); Serial.print("\t");
+  Serial.print("CH4:"); Serial.print(rc_values[RC_CH4]); Serial.print("\t");
+  Serial.print("A:"); Serial.print(digitalRead(pinA)); Serial.print("\t");  
+  Serial.print("B:"); Serial.print(digitalRead(pinB)); Serial.print("\t");
+  Serial.print("C:"); Serial.print(digitalRead(pinC)); Serial.print("\t");
+  Serial.print("D:"); Serial.print(digitalRead(pinD)); Serial.print("\t");
+  Serial.print("enA:"); Serial.print(digitalRead(enA)); Serial.print("\t");
+  Serial.print("enB:"); Serial.println(digitalRead(enB));  
+
+//------------------------------------ Rc controls------------------------------
+ 
+  if(rc_values[RC_CH3]>=1520){     //Fix
+ int backward1 = rc_values[RC_CH4];
+  backward1 = map(backward1, 1515, 982, 0, 255 );
+   backward(backward1);
+   void loop(){
+  digitalWrite(BLight, HIGH);
+      delay(100);
+   digitalWrite(BLight, LOW);
+   delay(100);
+  }
+  }
+  else if(rc_values[RC_CH2]>=1485){   //Right stick forward
+   int forward1 = rc_values[RC_CH4];
+  forward1 = map(forward1, 1485, 2000, 0, 255 );
+  forward(forward1);
+  }
+  else if(rc_values[RC_CH4]>=1510){    //Fix
+  int right1 = rc_values[RC_CH4];
+  right1 = map(right1, 1490, 1975, 0, 255 );
+   right(right1);
+  }
+   else if(rc_values[RC_CH4]<=1490){    // Fix
+   int left1 = rc_values[RC_CH4];
+   left1 = map(left1, 1490, 967, 0, 255 );
+   left(left1);
+   
+   
+  }
+  else{
+    STOP();
+    void loop() {
+      digitalWrite(BLight, HIGH);
+      delay(10);
+    }
+  }
+     }
+  
+}
+//-------------------------------------------------------------------Basic Funtions------------------------------------------
+int forward(int power){
+  digitalWrite(pinLF, HIGH);
+  digitalWrite(pinRF, HIGH);
+  digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, LOW);
+ analogWrite(enA, power);
+  analogWrite(enB, power);    
+  lcd.print("Going forward");                                                                                                  
+ 
+}
+
+int backward(int power){
+  digitalWrite(pinRB, HIGH);
+  digitalWrite(pinLB, HIGH);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, LOW);
+  analogWrite(enA, power);
+  analogWrite(enB, power);
+  }
+
+int left(int power){
+   digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, HIGH);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, HIGH);
+  analogWrite(enA, power);
+  analogWrite(enB, power);
+}
+
+int right(int power){
+   digitalWrite(pinRB, HIGH);
+  digitalWrite(pinLB, LOW);
+   digitalWrite(pinLF, HIGH);
+  digitalWrite(pinRF, LOW);
+  analogWrite(enA, power);
+  analogWrite(enB, power);
+}
+
+int STOP(){
+   digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, LOW);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, LOW);
+ analogWrite(enA, 0);
+  analogWrite(enB, 0);
+}
+/*---------------------------------------------------------RFID LOCK---------------------------------------------------------*/
+
+ uint8_t getID() {
+  
+  // Getting ready for Reading PICCs
+  if ( ! mfrc522.PICC_IsNewCardPresent()) { //If a new PICC placed to RFID reader continue
+    return 0;
+  }
+  if ( ! mfrc522.PICC_ReadCardSerial()) {   //Since a PICC placed get Serial and continue
+    return 0;
+  }
+  // There are Mifare PICCs which have 4 byte or 7 byte UID care if you use 7 byte PICC
+  // I think we should assume every PICC as they have 4 byte UID
+  // Until we support 7 byte PICCs
+  Serial.println(F("Scanned PICC's UID:"));
+  for ( uint8_t i = 0; i < 4; i++) {  //
+    readCard[i] = mfrc522.uid.uidByte[i];
+    Serial.print(readCard[i], HEX);
+  }
+  Serial.println("");
+  mfrc522.PICC_HaltA(); // Stop reading
+  return 1;
+}
+
+
