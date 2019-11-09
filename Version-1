@@ -1,0 +1,87 @@
+#include <LiquidCrystal.h>
+
+int pinRF = 27;
+int pinRB = 28;
+int pinLF = 29;
+int pinLB = 30;
+
+/*----------------------------------------------------------------------------------------------------------------------------- For LCD*/
+ const int rs = 14, en = 21, d4 = 22, d5 = 23, d6 = 24, d7 = 25;
+ LiquidCrystal lcd(rs,en,d4,d5,d6,d7);
+
+int enA = 6;
+int enB = 4;
+
+
+void setup() {
+lcd.begin(16,2);
+lcd.print("hello pleb");
+//pinMode(pinRF, OUTPUT);//Right side forward
+//pinMode(pinRB, OUTPUT);//Right side backard
+//pinMode(enA, OUTPUT);
+
+//pinMode(pinLF, OUTPUT);//Left side forward
+//pinMode(pinLB, OUTPUT);//Left side backward
+//pinMode(enB, OUTPUT);
+
+}
+
+void loop() {
+lcd.setCursor(0,1);
+lcd.print(millis() / 1000);
+
+right();
+delay(500);
+STOP();
+delay(500);
+}
+
+int forward(){
+  digitalWrite(pinLF, HIGH);
+  digitalWrite(pinRF, HIGH);
+  digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, LOW);
+  analogWrite(enA, 255);
+  analogWrite(enB, 255);                                                                                                        
+  
+}
+
+int backward(){
+  digitalWrite(pinRB, HIGH);
+  digitalWrite(pinLB, HIGH);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, LOW);
+  analogWrite(enA, 1000.5);
+  analogWrite(enB, 1000.5);
+  }
+
+int left(){
+   digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, HIGH);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, HIGH);
+  analogWrite(enA, 1000.5);
+  analogWrite(enB, 1000.5);
+}
+
+int right(){
+   digitalWrite(pinRB, HIGH);
+  digitalWrite(pinLB, LOW);
+   digitalWrite(pinLF, HIGH);
+  digitalWrite(pinRF, LOW);
+  analogWrite(enA, 1000.5);
+  analogWrite(enB, 1000.5);
+}
+
+int STOP(){
+   digitalWrite(pinRB, LOW);
+  digitalWrite(pinLB, LOW);
+   digitalWrite(pinLF, LOW);
+  digitalWrite(pinRF, LOW);
+  analogWrite(enA, 1000.5);
+  analogWrite(enB, 1000.5);
+}
+
+
+
+
